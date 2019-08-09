@@ -1,0 +1,361 @@
+package edu.illinois.cs.cs125.empire
+
+import com.android.build.gradle.internal.dsl.BaseAppModuleExtension
+import com.android.build.gradle.tasks.ManifestProcessorTask
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory
+import com.fasterxml.jackson.module.kotlin.KotlinModule
+import org.gradle.api.Action
+import org.gradle.api.Plugin
+import org.gradle.api.Project
+import org.gradle.api.Task
+import org.gradle.api.artifacts.DependencyResolutionListener
+import org.gradle.api.artifacts.ResolvableDependencies
+import org.gradle.api.tasks.compile.JavaCompile
+import org.objectweb.asm.*
+import org.objectweb.asm.commons.AdviceAdapter
+import org.w3c.dom.Document
+import java.io.File
+import java.net.URLClassLoader
+import java.nio.file.Files
+import java.util.concurrent.Callable
+import java.util.jar.JarFile
+import javax.xml.parsers.DocumentBuilderFactory
+import javax.xml.transform.TransformerFactory
+import javax.xml.transform.dom.DOMSource
+import javax.xml.transform.stream.StreamResult
+
+/**
+ * The eMPire Gradle plugin.
+ */
+@Suppress("unused")
+class EmpirePlugin : Plugin<Project> {
+
+    /** The project the plugin was applied to. */
+    private lateinit var project: Project
+
+    /** Configuration from the Gradle script. */
+    private lateinit var gradleConfig: EmpireExtension
+
+    /** Collection of segments that need to be swapped out. */
+    private lateinit var replacedSegments: Iterable<EmpireSegment>
+
+    /** Opportunistic compile tasks that have been created. */
+    private lateinit var opportunisticCompileTasks: Map<String, JavaCompile>
+
+    /**
+     * Applies the plugin to a Gradle project.
+     * @param project the project the plugin is being applied to
+     */
+    override fun apply(project: Project) {
+        // Set up extension
+        this.project = project
+        gradleConfig = project.extensions.create("eMPire", EmpireExtension::class.java)
+        gradleConfig.studentConfig = project.file("config/use.yaml")
+        gradleConfig.levels = project.container(EmpireLevel::class.java).also { it.add(EmpireLevel("none")) }
+        gradleConfig.segments = project.container(EmpireSegment::class.java)
+
+        // Set up AAR repository
+        project.repositories.flatDir { it.dirs("provided") }
+
+        // Set up the dependency listener
+        project.gradle.addListener(object : DependencyResolutionListener {
+            override fun beforeResolve(unused: ResolvableDependencies) {
+                adjustDependencies()
+                project.gradle.removeListener(this)
+            }
+            override fun afterResolve(unused: ResolvableDependencies) { }
+        })
+
+        // Set up compilation hooks
+        project.tasks.withType(JavaCompile::class.java) hookJavac@{ javaTask ->
+            if (gradleConfig.studentCompileTasks?.contains(javaTask.name) != false) {
+                applyConfigDependency(javaTask)
+                javaTask.doFirst("eMPire adjustCompile") {
+                    adjustCompile(javaTask)
+                }
+                javaTask.doLast("eMPire postprocessCompile") {
+                    postprocessCompile(javaTask)
+                }
+            }
+            if (gradleConfig.opportunisticCompile.javacTasks?.contains(javaTask.name) == true) {
+                val reconfTask = project.task("configForOpportunistic${javaTask.name.capitalize()}")
+                reconfTask.doLast {
+                    gradleConfig.opportunisticCompile.classes?.forEach { file ->
+                        javaTask.excludes.add("${gradleConfig.excludedSrcPath}/$file.*")
+                    }
+                    opportunisticCompileTasks.forEach { (name, task) ->
+                        task.options.sourcepath = project.fileTree(gradleConfig.opportunisticCompile.javaRoot!!)
+                        task.source = task.options.sourcepath!!.asFileTree
+                        task.include("${gradleConfig.excludedSrcPath}/$name.*")
+                        task.classpath = javaTask.classpath + javaTask.outputs.files
+                        task.options.bootstrapClasspath = javaTask.options.bootstrapClasspath
+                        task.destinationDir = javaTask.destinationDir
+                        task.sourceCompatibility = javaTask.sourceCompatibility
+                        task.targetCompatibility = javaTask.targetCompatibility
+                    }
+                }
+                javaTask.dependsOn(reconfTask)
+            }
+        }
+
+        // Create opportunistic compile tasks
+        project.tasks.whenTaskAdded {
+            if (it.name !in (gradleConfig.opportunisticCompile.dependentTasks ?: mutableSetOf())) return@whenTaskAdded
+            if (!this::opportunisticCompileTasks.isInitialized) {
+                opportunisticCompileTasks = gradleConfig.opportunisticCompile.classes!!.map { f ->
+                    val newJavac = project.tasks.register("tryCompile$f", JavaCompile::class.java).get()
+                    newJavac.mustRunAfter(*gradleConfig.opportunisticCompile.javacTasks!!.toTypedArray())
+                    newJavac.options.isIncremental = false
+                    newJavac.options.isFailOnError = false
+                    f to newJavac
+                }.toMap()
+            }
+            opportunisticCompileTasks.values.forEach { oc -> it.dependsOn(oc) }
+        }
+
+        // Finish setup when project is evaluated
+        project.afterEvaluate {
+            // Set up Android reconfiguration
+            reconfigureAndroid(project.extensions.getByName("android") as BaseAppModuleExtension)
+        }
+    }
+
+    /**
+     * Makes sure all necessary configuration is loaded.
+     */
+    private fun loadConfig() {
+        if (this::replacedSegments.isInitialized) return
+        replacedSegments = if (project.hasProperty("empire.replace")) {
+            val toReplace = (project.property("empire.replace") as String).split(',')
+            gradleConfig.segments!!.filter { toReplace.contains(it.name) }
+        } else if (project.hasProperty("empire.level")) {
+            gradleConfig.levels!!.getByName(project.property("empire.level") as String).segments.map { gradleConfig.segments!!.getByName(it) }
+        } else {
+            val loader = ObjectMapper(YAMLFactory()).also { it.registerModule(KotlinModule()) }
+            val studentConfig = loader.readValue(Files.newBufferedReader(gradleConfig.studentConfig!!.toPath()),
+                    EmpireStudentConfig::class.java)
+            if (studentConfig.segments != null) {
+                gradleConfig.segments!!.filter { studentConfig.segments[it.name] ?: false }
+            } else if (studentConfig.level != null) {
+                gradleConfig.levels!!.getByName(studentConfig.level).segments.map { gradleConfig.segments!!.getByName(it) }
+            } else {
+                listOf()
+            }
+        }
+    }
+
+    /**
+     * Makes a task depend on the configured set of replaced segments.
+     * @param task the task that needs to be redone if the eMPire setting changes
+     */
+    private fun applyConfigDependency(task: Task) {
+        task.inputs.property("segments", Callable { replacedSegments.joinToString { it.name } })
+    }
+
+    /**
+     * Adjusts dependencies as directed.
+     */
+    private fun adjustDependencies() {
+        loadConfig()
+        val dependencies = project.configurations.getByName("implementation").dependencies
+        replacedSegments.flatMap { seg -> seg.addJars }.forEach {
+            dependencies.add(project.dependencies.create(project.files("provided/$it.jar")))
+        }
+        replacedSegments.flatMap { seg -> seg.addAars }.forEach {
+            dependencies.add(project.dependencies.create(mapOf("name" to it, "ext" to "aar")))
+        }
+    }
+
+    /**
+     * Adjusts a Java compilation task to exclude appropriate files.
+     * @param task the compilation task to adjust sources for
+     */
+    private fun adjustCompile(task: JavaCompile) {
+        loadConfig()
+        replacedSegments.flatMap { seg -> seg.removeClasses }.forEach {
+            task.excludes.add("${gradleConfig.excludedSrcPath}/$it.*")
+        }
+    }
+
+    /**
+     * Postprocesses the result of a student Java compilation task.
+     * @param task the compilation task that just completed
+     */
+    private fun postprocessCompile(task: JavaCompile) {
+        redactCompile(task)
+        injectClassesAfterCompile(task)
+        chimerizeAfterCompile(task)
+    }
+
+    /**
+     * Deletes undesired outputs of a Java compilation task.
+     * Otherwise a full clean would be needed after the student configuration changed.
+     * @param task the compilation task that just completed
+     */
+    private fun redactCompile(task: JavaCompile) {
+        val toDelete = replacedSegments.flatMap { seg -> seg.removeClasses }
+        task.destinationDir.walkTopDown()
+                .filter { isAffectedClassFile(it) && (it.nameWithoutExtension.split("\\$")[0] in toDelete) }
+                .forEach { it.delete() }
+    }
+
+    /**
+     * Applies injectors to compiled student classes.
+     * @param task the compilation task that just completed
+     */
+    private fun injectClassesAfterCompile(task: JavaCompile) {
+        val toApply = replacedSegments.flatMap { it.injectors }
+        if (toApply.isEmpty()) return
+        task.destinationDir.walkTopDown().filter { isAffectedClassFile(it) }.forEach {
+            val classInjectors = toApply.filter { i -> i.targetClass == it.nameWithoutExtension }
+            if (classInjectors.isEmpty()) return@forEach
+            val classReader = ClassReader(it.readBytes())
+            val classWriter = ClassWriter(classReader, ClassWriter.COMPUTE_FRAMES)
+            val classVisitor = object : ClassVisitor(Opcodes.ASM7, classWriter) {
+                override fun visitMethod(access: Int, name: String, descriptor: String, signature: String?, exceptions: Array<out String>?): MethodVisitor {
+                    val mv = super.visitMethod(access, name, descriptor, signature, exceptions)
+                    val injector = classInjectors.firstOrNull { i -> i.targetMethod == name } ?: return mv
+                    return object : AdviceAdapter(Opcodes.ASM7, mv, access, name, descriptor) {
+                        override fun onMethodExit(opcode: Int) {
+                            if (opcode == Opcodes.ATHROW) return
+                            mv.visitVarInsn(Opcodes.ALOAD, 0)
+                            mv.visitMethodInsn(Opcodes.INVOKESTATIC, injector.injectorClass, injector.injectorMethod,
+                                    "(Ljava/lang/Object;)V", false)
+                        }
+                    }
+                }
+            }
+            classReader.accept(classVisitor, ClassReader.EXPAND_FRAMES)
+            it.writeBytes(classWriter.toByteArray())
+        }
+    }
+
+    /**
+     * Applies chimerization to the results of a student compilation task.
+     * @param task the Java compilation task that just finished
+     */
+    private fun chimerizeAfterCompile(task: JavaCompile) {
+        val toChimerize = replacedSegments.flatMap { it.chimeras }
+        if (toChimerize.isEmpty()) return
+        val targetFiles = mutableMapOf<String, File>()
+        task.destinationDir.walkTopDown().filter { isAffectedClassFile(it) }.forEach {
+            val className = it.nameWithoutExtension.split('$', limit = 2)[0]
+            if (className !in toChimerize.map { c -> c.targetClass }) return@forEach
+            if (it.nameWithoutExtension.contains('$')) {
+                it.delete()
+            } else {
+                targetFiles[className] = it
+            }
+        }
+        toChimerize.forEach { chimera ->
+            val originalClass = targetFiles[chimera.targetClass]!!.readBytes()
+            @Suppress("UNCHECKED_CAST") val camoFields = chimera.camo?.let {
+                val loader = URLClassLoader(arrayOf(project.file("provided/${it.file}").toURI().toURL()), javaClass.classLoader)
+                val method = loader.loadClass(it.className).getMethod(it.method, ByteArray::class.java)
+                method.invoke(null, originalClass) as Map<String, String>
+            } ?: mapOf()
+            val jar = JarFile(project.file("provided/${chimera.jar}"))
+            jar.stream().forEach { entry ->
+                val destination = File(task.destinationDir, entry.name)
+                destination.parentFile.mkdirs()
+                val entryStream = jar.getInputStream(entry)
+                destination.writeBytes(entryStream.readBytes())
+                entryStream.close()
+            }
+            jar.close()
+            val originalReader = ClassReader(originalClass)
+            val providedReader = ClassReader(targetFiles[chimera.targetClass]!!.readBytes())
+            val writer = ClassWriter(0)
+            val addedFields = mutableListOf<String>()
+            val addedMethods = mutableListOf<String>()
+            val filteringVisitor = object : ClassVisitor(Opcodes.ASM7) {
+                override fun visitMethod(access: Int, name: String?, descriptor: String?, signature: String?, exceptions: Array<out String>?): MethodVisitor? {
+                    return if (name == chimera.replaceMethod || "$name$descriptor".toLowerCase() !in addedMethods) {
+                        writer.visitMethod(access, name, descriptor, signature, exceptions)
+                    } else {
+                        null
+                    }
+                }
+                override fun visitField(access: Int, name: String?, descriptor: String?, signature: String?, value: Any?): FieldVisitor? {
+                    return if (name in addedFields) {
+                        null
+                    } else {
+                        writer.visitField(access, name, descriptor, signature, value)
+                    }
+                }
+            }
+            val chimeraVisitor = object : ClassVisitor(Opcodes.ASM7, writer) {
+                override fun visitMethod(access: Int, name: String, descriptor: String?, signature: String?, exceptions: Array<out String>?): MethodVisitor? {
+                    return if (name == chimera.replaceMethod) {
+                        null
+                    } else {
+                        addedMethods.add("$name$descriptor".toLowerCase())
+                        super.visitMethod(access, name, descriptor, signature, exceptions)
+                    }
+                }
+                override fun visitField(access: Int, name: String, descriptor: String?, signature: String?, value: Any?): FieldVisitor {
+                    addedFields.add(name)
+                    return super.visitField(access, name, descriptor, signature, value)
+                }
+                override fun visitEnd() {
+                    visitField(Opcodes.ACC_STATIC or Opcodes.ACC_FINAL or Opcodes.ACC_PRIVATE,
+                            "_EMPIRE_CHIMERA", Type.getDescriptor(String::class.java), null,
+                            "This chimeric class comes from provided code combined with your ${chimera.replaceMethod} method.").visitEnd()
+                    camoFields.forEach { (name, value) ->
+                        visitField(Opcodes.ACC_STATIC or Opcodes.ACC_FINAL or Opcodes.ACC_PRIVATE,
+                                name, Type.getDescriptor(String::class.java), null, value).visitEnd()
+                    }
+                    originalReader.accept(filteringVisitor, 0)
+                    super.visitEnd()
+                }
+            }
+            providedReader.accept(chimeraVisitor, 0)
+            targetFiles[chimera.targetClass]!!.writeBytes(writer.toByteArray())
+        }
+    }
+
+    /**
+     * Determines whether a file is a student class file.
+     * @param file the file
+     * @return whether it's a Java class file that may need to be adjusted
+     */
+    private fun isAffectedClassFile(file: File): Boolean {
+        val pathMustContain = if (gradleConfig.excludedSrcPath == "**") "" else gradleConfig.excludedSrcPath
+        return file.isFile && file.extension.toLowerCase() == "class"
+                && file.parentFile.absolutePath.replace('\\', '/').endsWith(pathMustContain)
+    }
+
+    /**
+     * Adjusts Android Gradle configuration/processing.
+     * @param ext the "android" configuration section
+     */
+    private fun reconfigureAndroid(ext: BaseAppModuleExtension) {
+        loadConfig()
+
+        // Apply manifest editors
+        val editors = replacedSegments.flatMap { it.manifestEditors }.map {
+            val loader = URLClassLoader(arrayOf(project.file("provided/${it.file}").toURI().toURL()))
+            val method = loader.loadClass(it.className).getMethod(it.method, Document::class.java)
+            Action<Document> { doc -> method.invoke(null, doc) }
+        }
+        if (editors.isNotEmpty()) {
+            val xmlLoader = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+            val xmlWriter = TransformerFactory.newInstance().newTransformer()
+            ext.applicationVariants.flatMap { it.outputs }.forEach { output ->
+                val processManifest = output.processManifestProvider.get()
+                applyConfigDependency(processManifest)
+                processManifest.doLast("eMPire manifestEditor") {
+                    if (it !is ManifestProcessorTask) error("processManifestProvider didn't provide a ManifestProcessorTask")
+                    setOf(it.manifestOutputDirectory, it.instantRunManifestOutputDirectory).map { dp -> dp.get().asFile }.forEach eachDir@{ d ->
+                        val manifestFile = d.listFiles { f -> f.name == "AndroidManifest.xml" }?.firstOrNull() ?: return@eachDir
+                        val manifestXml = xmlLoader.parse(manifestFile)
+                        editors.forEach { edit -> edit.execute(manifestXml) }
+                        xmlWriter.transform(DOMSource(manifestXml), StreamResult(manifestFile))
+                    }
+                }
+            }
+        }
+    }
+
+}
