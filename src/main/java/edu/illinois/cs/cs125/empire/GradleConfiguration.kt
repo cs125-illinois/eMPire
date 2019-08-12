@@ -9,14 +9,14 @@ import java.io.File
 
 open class EmpireExtension {
     var excludedSrcPath: String = "**"
-    var levels: NamedDomainObjectContainer<EmpireLevel>? = null
+    lateinit var levels: NamedDomainObjectContainer<EmpireLevel>
     var opportunisticCompile: EmpireOpportunisticCompiler = EmpireOpportunisticCompiler()
-    var segments: NamedDomainObjectContainer<EmpireSegment>? = null
+    lateinit var segments: NamedDomainObjectContainer<EmpireSegment>
     var studentCompileTasks: MutableSet<String>? = null
     var studentConfig: File? = null
 
     fun levels(action: Closure<NamedDomainObjectContainer<EmpireLevel>>) {
-        levels!!.configure(action)
+        levels.configure(action)
     }
     fun opportunisticCompile(action: Action<EmpireOpportunisticCompiler>) {
         action.execute(opportunisticCompile)
@@ -25,7 +25,7 @@ open class EmpireExtension {
         action.also { it.delegate = opportunisticCompile }.call()
     }
     fun segments(action: Closure<NamedDomainObjectContainer<EmpireSegment>>) {
-        segments!!.configure(action)
+        segments.configure(action)
     }
     fun studentCompileTasks(vararg tasks: String) {
         if (studentCompileTasks == null) studentCompileTasks = mutableSetOf()

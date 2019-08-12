@@ -60,7 +60,8 @@ class EmpirePlugin : Plugin<Project> {
 
         // Set up the dependency listener
         project.gradle.addListener(object : DependencyResolutionListener {
-            override fun beforeResolve(unused: ResolvableDependencies) {
+            override fun beforeResolve(deps: ResolvableDependencies) {
+                if (gradleConfig.segments.size == 0) return
                 adjustDependencies()
                 project.gradle.removeListener(this)
             }
@@ -127,17 +128,17 @@ class EmpirePlugin : Plugin<Project> {
         if (this::replacedSegments.isInitialized) return
         replacedSegments = if (project.hasProperty("empire.replace")) {
             val toReplace = (project.property("empire.replace") as String).split(',')
-            gradleConfig.segments!!.filter { toReplace.contains(it.name) }
+            gradleConfig.segments.filter { toReplace.contains(it.name) }
         } else if (project.hasProperty("empire.level")) {
-            gradleConfig.levels!!.getByName(project.property("empire.level") as String).segments.map { gradleConfig.segments!!.getByName(it) }
+            gradleConfig.levels.getByName(project.property("empire.level") as String).segments.map { gradleConfig.segments.getByName(it) }
         } else {
             val loader = ObjectMapper(YAMLFactory()).also { it.registerModule(KotlinModule()) }
             val studentConfig = loader.readValue(Files.newBufferedReader(gradleConfig.studentConfig!!.toPath()),
                     EmpireStudentConfig::class.java)
             if (studentConfig.segments != null) {
-                gradleConfig.segments!!.filter { studentConfig.segments[it.name] ?: false }
+                gradleConfig.segments.filter { studentConfig.segments[it.name] ?: false }
             } else if (studentConfig.level != null) {
-                gradleConfig.levels!!.getByName(studentConfig.level).segments.map { gradleConfig.segments!!.getByName(it) }
+                gradleConfig.levels.getByName(studentConfig.level).segments.map { gradleConfig.segments.getByName(it) }
             } else {
                 listOf()
             }
