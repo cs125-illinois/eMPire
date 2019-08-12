@@ -1,6 +1,5 @@
 package edu.illinois.cs.cs125.empire
 
-import com.android.build.gradle.internal.dsl.BaseAppModuleExtension
 import com.android.build.gradle.tasks.ManifestProcessorTask
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory
@@ -116,8 +115,27 @@ class EmpirePlugin : Plugin<Project> {
                 opportunisticCompileTasks.values.forEach { oc -> it.dependsOn(oc) }
             }
 
-            // Set up Android reconfiguration
-            reconfigureAndroid(project.extensions.getByName("android") as BaseAppModuleExtension)
+            // Hook manifest processor tasks
+            val xmlLoader = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+            val xmlWriter = TransformerFactory.newInstance().newTransformer()
+            project.tasks.withType(ManifestProcessorTask::class.java) { processManifest ->
+                loadConfig()
+                applyConfigDependency(processManifest)
+                val editors = replacedSegments.flatMap { it.manifestEditors }.map {
+                    val loader = URLClassLoader(arrayOf(project.file("provided/${it.file}").toURI().toURL()), javaClass.classLoader)
+                    val method = loader.loadClass(it.className).getMethod(it.method, Document::class.java)
+                    Action<Document> { doc -> method.invoke(null, doc) }
+                }
+                if (editors.isEmpty()) return@withType
+                processManifest.doLast("eMPire manifestEditor") {
+                    setOf(processManifest.manifestOutputDirectory, processManifest.instantRunManifestOutputDirectory).map { dp -> dp.get().asFile }.forEach eachDir@{ d ->
+                        val manifestFile = d.listFiles { f -> f.name == "AndroidManifest.xml" }?.firstOrNull() ?: return@eachDir
+                        val manifestXml = xmlLoader.parse(manifestFile)
+                        editors.forEach { edit -> edit.execute(manifestXml) }
+                        xmlWriter.transform(DOMSource(manifestXml), StreamResult(manifestFile))
+                    }
+                }
+            }
         }
     }
 
@@ -324,38 +342,6 @@ class EmpirePlugin : Plugin<Project> {
         val pathMustContain = if (gradleConfig.excludedSrcPath == "**") "" else gradleConfig.excludedSrcPath
         return file.isFile && file.extension.toLowerCase() == "class"
                 && file.parentFile.absolutePath.replace('\\', '/').endsWith(pathMustContain)
-    }
-
-    /**
-     * Adjusts Android Gradle configuration/processing.
-     * @param ext the "android" configuration section
-     */
-    private fun reconfigureAndroid(ext: BaseAppModuleExtension) {
-        loadConfig()
-
-        // Apply manifest editors
-        val editors = replacedSegments.flatMap { it.manifestEditors }.map {
-            val loader = URLClassLoader(arrayOf(project.file("provided/${it.file}").toURI().toURL()), javaClass.classLoader)
-            val method = loader.loadClass(it.className).getMethod(it.method, Document::class.java)
-            Action<Document> { doc -> method.invoke(null, doc) }
-        }
-        if (editors.isNotEmpty()) {
-            val xmlLoader = DocumentBuilderFactory.newInstance().newDocumentBuilder()
-            val xmlWriter = TransformerFactory.newInstance().newTransformer()
-            ext.applicationVariants.flatMap { it.outputs }.forEach { output ->
-                val processManifest = output.processManifestProvider.get()
-                applyConfigDependency(processManifest)
-                processManifest.doLast("eMPire manifestEditor") {
-                    if (it !is ManifestProcessorTask) error("processManifestProvider didn't provide a ManifestProcessorTask")
-                    setOf(it.manifestOutputDirectory, it.instantRunManifestOutputDirectory).map { dp -> dp.get().asFile }.forEach eachDir@{ d ->
-                        val manifestFile = d.listFiles { f -> f.name == "AndroidManifest.xml" }?.firstOrNull() ?: return@eachDir
-                        val manifestXml = xmlLoader.parse(manifestFile)
-                        editors.forEach { edit -> edit.execute(manifestXml) }
-                        xmlWriter.transform(DOMSource(manifestXml), StreamResult(manifestFile))
-                    }
-                }
-            }
-        }
     }
 
 }
