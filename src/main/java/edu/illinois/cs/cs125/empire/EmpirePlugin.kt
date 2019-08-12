@@ -51,7 +51,7 @@ class EmpirePlugin : Plugin<Project> {
         // Set up extension
         this.project = project
         gradleConfig = project.extensions.create("eMPire", EmpireExtension::class.java)
-        gradleConfig.studentConfig = project.file("config/use.yaml")
+        gradleConfig.studentConfig = project.file("config/eMPire.yaml")
         gradleConfig.levels = project.container(EmpireLevel::class.java).also { it.add(EmpireLevel("none")) }
         gradleConfig.segments = project.container(EmpireSegment::class.java)
 
@@ -99,23 +99,22 @@ class EmpirePlugin : Plugin<Project> {
             }
         }
 
-        // Create opportunistic compile tasks
-        project.tasks.whenTaskAdded {
-            if (it.name !in (gradleConfig.opportunisticCompile.dependentTasks ?: mutableSetOf())) return@whenTaskAdded
-            if (!this::opportunisticCompileTasks.isInitialized) {
-                opportunisticCompileTasks = gradleConfig.opportunisticCompile.classes!!.map { f ->
-                    val newJavac = project.tasks.register("tryCompile$f", JavaCompile::class.java).get()
-                    newJavac.mustRunAfter(*gradleConfig.opportunisticCompile.javacTasks!!.toTypedArray())
-                    newJavac.options.isIncremental = false
-                    newJavac.options.isFailOnError = false
-                    f to newJavac
-                }.toMap()
-            }
-            opportunisticCompileTasks.values.forEach { oc -> it.dependsOn(oc) }
-        }
-
         // Finish setup when project is evaluated
         project.afterEvaluate {
+            // Create opportunistic compile tasks
+            project.tasks.matching { it.name in (gradleConfig.opportunisticCompile.dependentTasks ?: mutableSetOf()) }.all {
+                if (!this::opportunisticCompileTasks.isInitialized) {
+                    opportunisticCompileTasks = gradleConfig.opportunisticCompile.classes!!.map { f ->
+                        val newJavac = project.tasks.register("tryCompile$f", JavaCompile::class.java).get()
+                        newJavac.mustRunAfter(*gradleConfig.opportunisticCompile.javacTasks!!.toTypedArray())
+                        newJavac.options.isIncremental = false
+                        newJavac.options.isFailOnError = false
+                        f to newJavac
+                    }.toMap()
+                }
+                opportunisticCompileTasks.values.forEach { oc -> it.dependsOn(oc) }
+            }
+
             // Set up Android reconfiguration
             reconfigureAndroid(project.extensions.getByName("android") as BaseAppModuleExtension)
         }
@@ -335,7 +334,7 @@ class EmpirePlugin : Plugin<Project> {
 
         // Apply manifest editors
         val editors = replacedSegments.flatMap { it.manifestEditors }.map {
-            val loader = URLClassLoader(arrayOf(project.file("provided/${it.file}").toURI().toURL()))
+            val loader = URLClassLoader(arrayOf(project.file("provided/${it.file}").toURI().toURL()), javaClass.classLoader)
             val method = loader.loadClass(it.className).getMethod(it.method, Document::class.java)
             Action<Document> { doc -> method.invoke(null, doc) }
         }
