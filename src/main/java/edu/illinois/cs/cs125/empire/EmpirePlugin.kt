@@ -118,17 +118,19 @@ class EmpirePlugin : Plugin<Project> {
             // Hook manifest processor tasks
             val xmlLoader = DocumentBuilderFactory.newInstance().newDocumentBuilder()
             val xmlWriter = TransformerFactory.newInstance().newTransformer()
-            project.tasks.withType(ManifestProcessorTask::class.java) { processManifest ->
-                loadConfig()
-                applyConfigDependency(processManifest)
-                val editors = replacedSegments.flatMap { it.manifestEditors }.map {
+            val editors by lazy {
+                replacedSegments.flatMap { it.manifestEditors }.map {
                     val loader = URLClassLoader(arrayOf(project.file("provided/${it.file}").toURI().toURL()), javaClass.classLoader)
                     val method = loader.loadClass(it.className).getMethod(it.method, Document::class.java)
                     Action<Document> { doc -> method.invoke(null, doc) }
                 }
+            }
+            project.tasks.withType(ManifestProcessorTask::class.java) { processManifest ->
+                loadConfig()
+                applyConfigDependency(processManifest)
                 if (editors.isEmpty()) return@withType
                 processManifest.doLast("eMPire manifestEditor") {
-                    setOf(processManifest.manifestOutputDirectory, processManifest.instantRunManifestOutputDirectory).map { dp -> dp.get().asFile }.forEach eachDir@{ d ->
+                    setOf(processManifest.manifestOutputDirectory, processManifest.instantRunManifestOutputDirectory).mapNotNull { dp -> dp.orNull?.asFile }.forEach eachDir@{ d ->
                         val manifestFile = d.listFiles { f -> f.name == "AndroidManifest.xml" }?.firstOrNull() ?: return@eachDir
                         val manifestXml = xmlLoader.parse(manifestFile)
                         editors.forEach { edit -> edit.execute(manifestXml) }
