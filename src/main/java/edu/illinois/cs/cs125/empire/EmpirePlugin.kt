@@ -232,11 +232,11 @@ class EmpirePlugin : Plugin<Project> {
             if (classInjectors.isEmpty()) return@forEach
             val classReader = ClassReader(it.readBytes())
             val classWriter = ClassWriter(classReader, ClassWriter.COMPUTE_FRAMES)
-            val classVisitor = object : ClassVisitor(Opcodes.ASM7, classWriter) {
+            val classVisitor = object : ClassVisitor(Opcodes.ASM6, classWriter) {
                 override fun visitMethod(access: Int, name: String, descriptor: String, signature: String?, exceptions: Array<out String>?): MethodVisitor {
                     val mv = super.visitMethod(access, name, descriptor, signature, exceptions)
                     val injector = classInjectors.firstOrNull { i -> i.targetMethod == name } ?: return mv
-                    return object : AdviceAdapter(Opcodes.ASM7, mv, access, name, descriptor) {
+                    return object : AdviceAdapter(Opcodes.ASM6, mv, access, name, descriptor) {
                         override fun onMethodExit(opcode: Int) {
                             if (opcode == Opcodes.ATHROW) return
                             mv.visitVarInsn(Opcodes.ALOAD, 0)
@@ -289,7 +289,7 @@ class EmpirePlugin : Plugin<Project> {
             val writer = ClassWriter(0)
             val addedFields = mutableListOf<String>()
             val addedMethods = mutableListOf<String>()
-            val filteringVisitor = object : ClassVisitor(Opcodes.ASM7) {
+            val filteringVisitor = object : ClassVisitor(Opcodes.ASM6) {
                 override fun visitMethod(access: Int, name: String?, descriptor: String?, signature: String?, exceptions: Array<out String>?): MethodVisitor? {
                     return if (name == chimera.replaceMethod || "$name$descriptor".toLowerCase() !in addedMethods) {
                         writer.visitMethod(access, name, descriptor, signature, exceptions)
@@ -305,7 +305,7 @@ class EmpirePlugin : Plugin<Project> {
                     }
                 }
             }
-            val chimeraVisitor = object : ClassVisitor(Opcodes.ASM7, writer) {
+            val chimeraVisitor = object : ClassVisitor(Opcodes.ASM6, writer) {
                 override fun visitMethod(access: Int, name: String, descriptor: String?, signature: String?, exceptions: Array<out String>?): MethodVisitor? {
                     return if (name == chimera.replaceMethod) {
                         null

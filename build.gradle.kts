@@ -18,7 +18,7 @@ dependencies {
             "com.fasterxml.jackson.core:jackson-databind:2.9.9",
             "com.fasterxml.jackson.module:jackson-module-kotlin:2.9.8",
             "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.9.8",
-            "org.ow2.asm:asm:7.1").forEach {
+            "org.ow2.asm:asm:6.0").forEach {
         implementation(it)
         shadow(it)
     }
@@ -87,7 +87,7 @@ publishing {
             }
             groupId = "com.github.cs125-illinois"
             artifactId = "empire"
-            version = "1.0.1"
+            version = "1.0.2"
             from(components.getByName("java"))
             pom.withXml {
                 val pomFile = project.file("${project.buildDir}/generated-pom.xml")
