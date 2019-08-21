@@ -130,7 +130,7 @@ class EmpirePlugin : Plugin<Project> {
                 applyConfigDependency(processManifest)
                 if (editors.isEmpty()) return@withType
                 processManifest.doLast("eMPire manifestEditor") {
-                    setOf(processManifest.manifestOutputDirectory, processManifest.instantRunManifestOutputDirectory).mapNotNull { dp -> dp.orNull?.asFile }.forEach eachDir@{ d ->
+                    setOf(processManifest.manifestOutputDirectory).mapNotNull { dp -> dp.orNull?.asFile }.forEach eachDir@{ d ->
                         val manifestFile = d.listFiles { f -> f.name == "AndroidManifest.xml" }?.firstOrNull() ?: return@eachDir
                         val manifestXml = xmlLoader.parse(manifestFile)
                         editors.forEach { edit -> edit.execute(manifestXml) }

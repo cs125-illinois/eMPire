@@ -13,7 +13,7 @@ plugins {
 dependencies {
     compileOnly(gradleApi())
     setOf(
-            "com.android.tools.build:gradle:3.4.2",
+            "com.android.tools.build:gradle:3.5.0",
             "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.3.41",
             "com.fasterxml.jackson.core:jackson-databind:2.9.9",
             "com.fasterxml.jackson.module:jackson-module-kotlin:2.9.8",
@@ -87,7 +87,7 @@ publishing {
             }
             groupId = "com.github.cs125-illinois"
             artifactId = "empire"
-            version = "1.0.2"
+            version = "1.0.3"
             from(components.getByName("java"))
             pom.withXml {
                 val pomFile = project.file("${project.buildDir}/generated-pom.xml")
