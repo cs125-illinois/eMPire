@@ -27,6 +27,7 @@ dependencies {
 repositories {
     mavenCentral()
     google()
+    jcenter()
 }
 
 tasks {
