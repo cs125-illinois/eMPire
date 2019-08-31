@@ -51,7 +51,7 @@ class EmpirePlugin : Plugin<Project> {
         this.project = project
         gradleConfig = project.extensions.create("eMPire", EmpireExtension::class.java)
         gradleConfig.studentConfig = project.file("config/eMPire.yaml")
-        gradleConfig.levels = project.container(EmpireLevel::class.java).also { it.add(EmpireLevel("none")) }
+        gradleConfig.checkpoints = project.container(EmpireCheckpoint::class.java).also { it.add(EmpireCheckpoint("none")) }
         gradleConfig.segments = project.container(EmpireSegment::class.java)
 
         // Set up AAR repository
@@ -149,16 +149,18 @@ class EmpirePlugin : Plugin<Project> {
         replacedSegments = if (project.hasProperty("empire.replace")) {
             val toReplace = (project.property("empire.replace") as String).split(',')
             gradleConfig.segments.filter { toReplace.contains(it.name) }
-        } else if (project.hasProperty("empire.level")) {
-            gradleConfig.levels.getByName(project.property("empire.level") as String).segments.map { gradleConfig.segments.getByName(it) }
+        } else if (project.hasProperty("empire.checkpoint")) {
+            gradleConfig.checkpoints.getByName(project.property("empire.checkpoint") as String).segments.map { gradleConfig.segments.getByName(it) }
         } else {
             val loader = ObjectMapper(YAMLFactory()).also { it.registerModule(KotlinModule()) }
             val studentConfig = loader.readValue(Files.newBufferedReader(gradleConfig.studentConfig!!.toPath()),
                     EmpireStudentConfig::class.java)
-            if (studentConfig.segments != null) {
+            if (!studentConfig.useProvided) {
+                listOf()
+            } else if (studentConfig.segments != null) {
                 gradleConfig.segments.filter { studentConfig.segments[it.name] ?: false }
-            } else if (studentConfig.level != null) {
-                gradleConfig.levels.getByName(studentConfig.level).segments.map { gradleConfig.segments.getByName(it) }
+            } else if (studentConfig.checkpoint != null) {
+                gradleConfig.checkpoints.getByName(studentConfig.checkpoint).segments.map { gradleConfig.segments.getByName(it) }
             } else {
                 listOf()
             }
