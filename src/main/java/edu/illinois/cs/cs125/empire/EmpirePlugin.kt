@@ -99,6 +99,9 @@ class EmpirePlugin : Plugin<Project> {
                     }
                 }
                 javaTask.dependsOn(reconfTask)
+                javaTask.doLast("eMPire cleanStaleOpportunisticClasses") {
+                    cleanStaleOpportunisticCompile(javaTask)
+                }
             }
         }
 
@@ -195,6 +198,19 @@ class EmpirePlugin : Plugin<Project> {
         replacedSegments.flatMap { seg -> seg.addAars }.forEach {
             dependencies.add(project.dependencies.create(mapOf("name" to it, "ext" to "aar")))
         }
+    }
+
+    /**
+     * Deletes class files corresponding to opportunistically compiled files not needed in this checkpoint.
+     * @param task the compilation task to clean outputs of
+     */
+    private fun cleanStaleOpportunisticCompile(task: JavaCompile) {
+        val ocLimit = checkpoint?.opportunisticCompileClasses ?: return
+        val ocAll = gradleConfig.opportunisticCompile.classes ?: return
+        val stale = ocAll - ocLimit
+        task.destinationDir.walkTopDown()
+                .filter { isAffectedClassFile(it) && it.nameWithoutExtension.split('$')[0] in stale }
+                .forEach { it.delete() }
     }
 
     /**
