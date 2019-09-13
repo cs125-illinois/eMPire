@@ -34,8 +34,12 @@ open class EmpireExtension {
 }
 
 open class EmpireCheckpoint(val name: String) {
+    var opportunisticCompileClasses: Set<String>? = null
     var segments = mutableSetOf<String>()
 
+    fun limitOpportunisticCompile(vararg classes: String) {
+        opportunisticCompileClasses = classes.toSet()
+    }
     fun segments(vararg toAdd: String) {
         segments.addAll(toAdd)
     }

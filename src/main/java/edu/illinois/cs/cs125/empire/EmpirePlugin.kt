@@ -42,6 +42,9 @@ class EmpirePlugin : Plugin<Project> {
     /** Opportunistic compile tasks that have been created. */
     private lateinit var opportunisticCompileTasks: Map<String, JavaCompile>
 
+    /** The checkpoint the student is working on, if any. */
+    private var checkpoint: EmpireCheckpoint? = null
+
     /**
      * Applies the plugin to a Gradle project.
      * @param project the project the plugin is being applied to
@@ -104,7 +107,10 @@ class EmpirePlugin : Plugin<Project> {
             // Create opportunistic compile tasks
             project.tasks.matching { it.name in (gradleConfig.opportunisticCompile.dependentTasks ?: mutableSetOf()) }.all {
                 if (!this::opportunisticCompileTasks.isInitialized) {
-                    opportunisticCompileTasks = gradleConfig.opportunisticCompile.classes!!.map { f ->
+                    loadConfig()
+                    opportunisticCompileTasks = gradleConfig.opportunisticCompile.classes!!.filter { f ->
+                        checkpoint?.opportunisticCompileClasses?.contains(f) != false
+                    }.map { f ->
                         val newJavac = project.tasks.register("tryCompile$f", JavaCompile::class.java).get()
                         newJavac.mustRunAfter(*gradleConfig.opportunisticCompile.javacTasks!!.toTypedArray())
                         newJavac.options.isIncremental = false
@@ -150,7 +156,8 @@ class EmpirePlugin : Plugin<Project> {
             val toReplace = (project.property("empire.replace") as String).split(',')
             gradleConfig.segments.filter { toReplace.contains(it.name) }
         } else if (project.hasProperty("empire.checkpoint")) {
-            gradleConfig.checkpoints.getByName(project.property("empire.checkpoint") as String).segments.map { gradleConfig.segments.getByName(it) }
+            checkpoint = gradleConfig.checkpoints.getByName(project.property("empire.checkpoint") as String)
+            checkpoint!!.segments.map { gradleConfig.segments.getByName(it) }
         } else {
             val loader = ObjectMapper(YAMLFactory()).also { it.registerModule(KotlinModule()) }
             val studentConfig = loader.readValue(Files.newBufferedReader(gradleConfig.studentConfig!!.toPath()),
@@ -160,7 +167,8 @@ class EmpirePlugin : Plugin<Project> {
             } else if (studentConfig.segments != null) {
                 gradleConfig.segments.filter { studentConfig.segments[it.name] ?: false }
             } else if (studentConfig.checkpoint != null) {
-                gradleConfig.checkpoints.getByName(studentConfig.checkpoint).segments.map { gradleConfig.segments.getByName(it) }
+                checkpoint = gradleConfig.checkpoints.getByName(studentConfig.checkpoint)
+                checkpoint!!.segments.map { gradleConfig.segments.getByName(it) }
             } else {
                 listOf()
             }
