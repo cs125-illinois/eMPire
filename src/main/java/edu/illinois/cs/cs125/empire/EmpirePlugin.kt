@@ -165,12 +165,14 @@ class EmpirePlugin : Plugin<Project> {
             val loader = ObjectMapper(YAMLFactory()).also { it.registerModule(KotlinModule()) }
             val studentConfig = loader.readValue(Files.newBufferedReader(gradleConfig.studentConfig!!.toPath()),
                     EmpireStudentConfig::class.java)
+            if (studentConfig.checkpoint != null) {
+                checkpoint = gradleConfig.checkpoints.getByName(studentConfig.checkpoint)
+            }
             if (!studentConfig.useProvided) {
                 listOf()
             } else if (studentConfig.segments != null) {
                 gradleConfig.segments.filter { studentConfig.segments[it.name] ?: false }
             } else if (studentConfig.checkpoint != null) {
-                checkpoint = gradleConfig.checkpoints.getByName(studentConfig.checkpoint)
                 checkpoint!!.segments.map { gradleConfig.segments.getByName(it) }
             } else {
                 listOf()
