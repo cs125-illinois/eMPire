@@ -4,7 +4,7 @@ import java.util.Properties
 
 plugins {
     id("java-library")
-    kotlin("jvm") version "1.3.41"
+    kotlin("jvm") version "1.3.61"
     id("com.github.johnrengelman.shadow") version "5.1.0"
     id("signing")
     id("maven-publish")
@@ -13,11 +13,11 @@ plugins {
 dependencies {
     compileOnly(gradleApi())
     setOf(
-            "com.android.tools.build:gradle:3.5.0",
-            "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.3.41",
-            "com.fasterxml.jackson.core:jackson-databind:2.9.9",
-            "com.fasterxml.jackson.module:jackson-module-kotlin:2.9.8",
-            "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.9.8",
+            "com.android.tools.build:gradle:3.5.3",
+            "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.3.61",
+            "com.fasterxml.jackson.core:jackson-databind:2.10.1",
+            "com.fasterxml.jackson.module:jackson-module-kotlin:2.10.1",
+            "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.10.1",
             "org.ow2.asm:asm:6.0").forEach {
         implementation(it)
         shadow(it)
@@ -25,9 +25,9 @@ dependencies {
 }
 
 repositories {
-    mavenCentral()
     google()
     jcenter()
+    mavenCentral()
 }
 
 tasks {
@@ -88,7 +88,7 @@ publishing {
             }
             groupId = "com.github.cs125-illinois"
             artifactId = "empire"
-            version = "1.0.3"
+            version = "1.0.4"
             from(components.getByName("java"))
             pom.withXml {
                 val pomFile = project.file("${project.buildDir}/generated-pom.xml")
