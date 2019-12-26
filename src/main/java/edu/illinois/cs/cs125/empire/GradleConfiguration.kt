@@ -9,14 +9,14 @@ import java.io.File
 
 open class EmpireExtension {
     var excludedSrcPath: String = "**"
-    lateinit var levels: NamedDomainObjectContainer<EmpireLevel>
+    lateinit var checkpoints: NamedDomainObjectContainer<EmpireCheckpoint>
     var opportunisticCompile: EmpireOpportunisticCompiler = EmpireOpportunisticCompiler()
     lateinit var segments: NamedDomainObjectContainer<EmpireSegment>
     var studentCompileTasks: MutableSet<String>? = null
     var studentConfig: File? = null
 
-    fun levels(action: Closure<NamedDomainObjectContainer<EmpireLevel>>) {
-        levels.configure(action)
+    fun checkpoints(action: Closure<NamedDomainObjectContainer<EmpireCheckpoint>>) {
+        checkpoints.configure(action)
     }
     fun opportunisticCompile(action: Action<EmpireOpportunisticCompiler>) {
         action.execute(opportunisticCompile)
@@ -33,9 +33,13 @@ open class EmpireExtension {
     }
 }
 
-open class EmpireLevel(val name: String) {
+open class EmpireCheckpoint(val name: String) {
+    var opportunisticCompileClasses: Set<String>? = null
     var segments = mutableSetOf<String>()
 
+    fun limitOpportunisticCompile(vararg classes: String) {
+        opportunisticCompileClasses = classes.toSet()
+    }
     fun segments(vararg toAdd: String) {
         segments.addAll(toAdd)
     }

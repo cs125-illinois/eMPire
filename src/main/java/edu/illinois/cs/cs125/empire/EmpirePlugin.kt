@@ -42,6 +42,9 @@ class EmpirePlugin : Plugin<Project> {
     /** Opportunistic compile tasks that have been created. */
     private lateinit var opportunisticCompileTasks: Map<String, JavaCompile>
 
+    /** The checkpoint the student is working on, if any. */
+    private var checkpoint: EmpireCheckpoint? = null
+
     /**
      * Applies the plugin to a Gradle project.
      * @param project the project the plugin is being applied to
@@ -51,7 +54,7 @@ class EmpirePlugin : Plugin<Project> {
         this.project = project
         gradleConfig = project.extensions.create("eMPire", EmpireExtension::class.java)
         gradleConfig.studentConfig = project.file("config/eMPire.yaml")
-        gradleConfig.levels = project.container(EmpireLevel::class.java).also { it.add(EmpireLevel("none")) }
+        gradleConfig.checkpoints = project.container(EmpireCheckpoint::class.java).also { it.add(EmpireCheckpoint("none")) }
         gradleConfig.segments = project.container(EmpireSegment::class.java)
 
         // Set up AAR repository
@@ -96,6 +99,9 @@ class EmpirePlugin : Plugin<Project> {
                     }
                 }
                 javaTask.dependsOn(reconfTask)
+                javaTask.doLast("eMPire cleanStaleOpportunisticClasses") {
+                    cleanStaleOpportunisticCompile(javaTask)
+                }
             }
         }
 
@@ -104,7 +110,10 @@ class EmpirePlugin : Plugin<Project> {
             // Create opportunistic compile tasks
             project.tasks.matching { it.name in (gradleConfig.opportunisticCompile.dependentTasks ?: mutableSetOf()) }.all {
                 if (!this::opportunisticCompileTasks.isInitialized) {
-                    opportunisticCompileTasks = gradleConfig.opportunisticCompile.classes!!.map { f ->
+                    loadConfig()
+                    opportunisticCompileTasks = gradleConfig.opportunisticCompile.classes!!.filter { f ->
+                        checkpoint?.opportunisticCompileClasses?.contains(f) != false
+                    }.map { f ->
                         val newJavac = project.tasks.register("tryCompile$f", JavaCompile::class.java).get()
                         newJavac.mustRunAfter(*gradleConfig.opportunisticCompile.javacTasks!!.toTypedArray())
                         newJavac.options.isIncremental = false
@@ -149,16 +158,22 @@ class EmpirePlugin : Plugin<Project> {
         replacedSegments = if (project.hasProperty("empire.replace")) {
             val toReplace = (project.property("empire.replace") as String).split(',')
             gradleConfig.segments.filter { toReplace.contains(it.name) }
-        } else if (project.hasProperty("empire.level")) {
-            gradleConfig.levels.getByName(project.property("empire.level") as String).segments.map { gradleConfig.segments.getByName(it) }
+        } else if (project.hasProperty("empire.checkpoint")) {
+            checkpoint = gradleConfig.checkpoints.getByName(project.property("empire.checkpoint") as String)
+            checkpoint!!.segments.map { gradleConfig.segments.getByName(it) }
         } else {
             val loader = ObjectMapper(YAMLFactory()).also { it.registerModule(KotlinModule()) }
             val studentConfig = loader.readValue(Files.newBufferedReader(gradleConfig.studentConfig!!.toPath()),
                     EmpireStudentConfig::class.java)
-            if (studentConfig.segments != null) {
+            if (studentConfig.checkpoint != null) {
+                checkpoint = gradleConfig.checkpoints.getByName(studentConfig.checkpoint)
+            }
+            if (!studentConfig.useProvided) {
+                listOf()
+            } else if (studentConfig.segments != null) {
                 gradleConfig.segments.filter { studentConfig.segments[it.name] ?: false }
-            } else if (studentConfig.level != null) {
-                gradleConfig.levels.getByName(studentConfig.level).segments.map { gradleConfig.segments.getByName(it) }
+            } else if (studentConfig.checkpoint != null) {
+                checkpoint!!.segments.map { gradleConfig.segments.getByName(it) }
             } else {
                 listOf()
             }
@@ -185,6 +200,19 @@ class EmpirePlugin : Plugin<Project> {
         replacedSegments.flatMap { seg -> seg.addAars }.forEach {
             dependencies.add(project.dependencies.create(mapOf("name" to it, "ext" to "aar")))
         }
+    }
+
+    /**
+     * Deletes class files corresponding to opportunistically compiled files not needed in this checkpoint.
+     * @param task the compilation task to clean outputs of
+     */
+    private fun cleanStaleOpportunisticCompile(task: JavaCompile) {
+        val ocLimit = checkpoint?.opportunisticCompileClasses ?: return
+        val ocAll = gradleConfig.opportunisticCompile.classes ?: return
+        val stale = ocAll - ocLimit
+        task.destinationDir.walkTopDown()
+                .filter { isAffectedClassFile(it) && it.nameWithoutExtension.split('$')[0] in stale }
+                .forEach { it.delete() }
     }
 
     /**
