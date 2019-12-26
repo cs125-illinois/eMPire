@@ -15,9 +15,9 @@ dependencies {
     setOf(
             "com.android.tools.build:gradle:3.5.3",
             "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.3.61",
-            "com.fasterxml.jackson.core:jackson-databind:2.10.1",
-            "com.fasterxml.jackson.module:jackson-module-kotlin:2.10.1",
-            "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.10.1",
+            "com.fasterxml.jackson.core:jackson-databind:2.9.9.3",
+            "com.fasterxml.jackson.module:jackson-module-kotlin:2.9.9",
+            "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.9.9",
             "org.ow2.asm:asm:6.0").forEach {
         implementation(it)
         shadow(it)
@@ -88,7 +88,7 @@ publishing {
             }
             groupId = "com.github.cs125-illinois"
             artifactId = "empire"
-            version = "2019.1.2"
+            version = "2019.1.3"
             from(components.getByName("java"))
             pom.withXml {
                 val pomFile = project.file("${project.buildDir}/generated-pom.xml")
