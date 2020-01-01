@@ -114,7 +114,8 @@ class EmpirePlugin : Plugin<Project> {
                     opportunisticCompileTasks = gradleConfig.opportunisticCompile.classes!!.filter { f ->
                         checkpoint?.opportunisticCompileClasses?.contains(f) != false
                     }.map { f ->
-                        val newJavac = project.tasks.register("tryCompile$f", JavaCompile::class.java).get()
+                        val gradleSafeName = f.capitalize().replace("/", "")
+                        val newJavac = project.tasks.register("tryCompile$gradleSafeName", JavaCompile::class.java).get()
                         newJavac.mustRunAfter(*gradleConfig.opportunisticCompile.javacTasks!!.toTypedArray())
                         newJavac.options.isIncremental = false
                         newJavac.options.isFailOnError = false
@@ -211,7 +212,7 @@ class EmpirePlugin : Plugin<Project> {
         val ocAll = gradleConfig.opportunisticCompile.classes ?: return
         val stale = ocAll - ocLimit
         task.destinationDir.walkTopDown()
-                .filter { isAffectedClassFile(it) && it.nameWithoutExtension.split('$')[0] in stale }
+                .filter { isAffectedClassFile(it) && getRelativeName(it).split('$')[0] in stale }
                 .forEach { it.delete() }
     }
 
@@ -244,7 +245,7 @@ class EmpirePlugin : Plugin<Project> {
     private fun redactCompile(task: JavaCompile) {
         val toDelete = replacedSegments.flatMap { seg -> seg.removeClasses }
         task.destinationDir.walkTopDown()
-                .filter { isAffectedClassFile(it) && (it.nameWithoutExtension.split("\\$")[0] in toDelete) }
+                .filter { isAffectedClassFile(it) && (getRelativeName(it).split("\\$")[0] in toDelete) }
                 .forEach { it.delete() }
     }
 
@@ -256,7 +257,7 @@ class EmpirePlugin : Plugin<Project> {
         val toApply = replacedSegments.flatMap { it.injectors }
         if (toApply.isEmpty()) return
         task.destinationDir.walkTopDown().filter { isAffectedClassFile(it) }.forEach {
-            val classInjectors = toApply.filter { i -> i.targetClass == it.nameWithoutExtension }
+            val classInjectors = toApply.filter { i -> i.targetClass == getRelativeName(it) }
             if (classInjectors.isEmpty()) return@forEach
             val classReader = ClassReader(it.readBytes())
             val classWriter = ClassWriter(classReader, ClassWriter.COMPUTE_FRAMES)
@@ -288,9 +289,9 @@ class EmpirePlugin : Plugin<Project> {
         if (toChimerize.isEmpty()) return
         val targetFiles = mutableMapOf<String, File>()
         task.destinationDir.walkTopDown().filter { isAffectedClassFile(it) }.forEach {
-            val className = it.nameWithoutExtension.split('$', limit = 2)[0]
+            val className = getRelativeName(it).split('$', limit = 2)[0]
             if (className !in toChimerize.map { c -> c.targetClass }) return@forEach
-            if (it.nameWithoutExtension.contains('$')) {
+            if (getRelativeName(it).contains('$')) {
                 it.delete()
             } else {
                 targetFiles[className] = it
@@ -369,9 +370,19 @@ class EmpirePlugin : Plugin<Project> {
      * @return whether it's a Java class file that may need to be adjusted
      */
     private fun isAffectedClassFile(file: File): Boolean {
-        val pathMustContain = if (gradleConfig.excludedSrcPath == "**") "" else gradleConfig.excludedSrcPath
-        return file.isFile && file.extension.toLowerCase() == "class"
-                && file.parentFile.absolutePath.replace('\\', '/').endsWith(pathMustContain)
+        if (!file.isFile || file.extension.toLowerCase() != "class") return false
+        return file.parentFile.absolutePath.replace('\\', '/')
+                .substring(project.projectDir.absolutePath.length).contains(gradleConfig.excludedSrcPath)
+    }
+
+    /**
+     * Gets the name (no extension) of a file relative to the excluded sources path.
+     * @param file the file
+     * @return the path component after the excluded sources path, with separators standardized to /
+     */
+    private fun getRelativeName(file: File): String {
+        return file.absolutePath.replace('\\', '/')
+                .substringAfterLast(gradleConfig.excludedSrcPath).trimStart('/').substringBeforeLast('.')
     }
 
 }
