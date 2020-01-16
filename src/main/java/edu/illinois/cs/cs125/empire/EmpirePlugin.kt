@@ -305,7 +305,7 @@ class EmpirePlugin : Plugin<Project> {
                 method.invoke(null, originalClass) as Map<String, String>
             } ?: mapOf()
             val jar = JarFile(project.file("provided/${chimera.jar}"))
-            jar.stream().forEach { entry ->
+            jar.stream().filter { !it.isDirectory && it.name.endsWith(".class") }.forEach { entry ->
                 val destination = File(task.destinationDir, entry.name)
                 destination.parentFile.mkdirs()
                 val entryStream = jar.getInputStream(entry)
