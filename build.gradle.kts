@@ -88,7 +88,7 @@ publishing {
             }
             groupId = "com.github.cs125-illinois"
             artifactId = "empire"
-            version = "2020.1.2"
+            version = "2020.1.3"
             from(components.getByName("java"))
             pom.withXml {
                 val pomFile = project.file("${project.buildDir}/generated-pom.xml")

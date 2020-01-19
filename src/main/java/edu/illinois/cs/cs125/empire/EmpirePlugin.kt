@@ -1,5 +1,6 @@
 package edu.illinois.cs.cs125.empire
 
+import com.android.build.gradle.internal.tasks.DexFileDependenciesTask
 import com.android.build.gradle.tasks.ManifestProcessorTask
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory
@@ -146,6 +147,16 @@ class EmpirePlugin : Plugin<Project> {
                         editors.forEach { edit -> edit.execute(manifestXml) }
                         xmlWriter.transform(DOMSource(manifestXml), StreamResult(manifestFile))
                     }
+                }
+            }
+
+            // Make sure provided JARs are reconsidered when building the APK
+            project.tasks.withType(DexFileDependenciesTask::class.java) { desugarJar ->
+                applyConfigDependency(desugarJar)
+                desugarJar.doFirst("eMPire DEX redaction") {
+                    val outDir = desugarJar.outputDirectory.get().asFile
+                    outDir.deleteRecursively()
+                    outDir.mkdirs()
                 }
             }
         }
