@@ -4,7 +4,7 @@ import java.util.Properties
 
 plugins {
     id("java-library")
-    kotlin("jvm") version "1.3.61"
+    kotlin("jvm") version "1.3.72"
     id("com.github.johnrengelman.shadow") version "5.1.0"
     id("signing")
     id("maven-publish")
@@ -13,8 +13,9 @@ plugins {
 dependencies {
     compileOnly(gradleApi())
     setOf(
-            "com.android.tools.build:gradle:3.5.3",
-            "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.3.61",
+            "com.android.tools.build:gradle:3.6.3",
+            "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.3.72",
+            // Do not update Jackson - 2.10.x has binary-incompatible changes that will break other plugins
             "com.fasterxml.jackson.core:jackson-databind:2.9.9.3",
             "com.fasterxml.jackson.module:jackson-module-kotlin:2.9.9",
             "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.9.9",
@@ -88,7 +89,7 @@ publishing {
             }
             groupId = "com.github.cs125-illinois"
             artifactId = "empire"
-            version = "2020.1.3"
+            version = "2020.1.4"
             from(components.getByName("java"))
             pom.withXml {
                 val pomFile = project.file("${project.buildDir}/generated-pom.xml")
