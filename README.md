@@ -1,4 +1,4 @@
 # eMPire
-A Gradle plugin to manage swappable modules of the CS 125 Machine Project.
+A Gradle plugin to manage checkpoints of the CS 125 Machine Project.
 
-Please contact software@cs125.cs.illinois.edu before trying to use this.
+See [the wiki](https://github.com/cs125-illinois/eMPire/wiki) for a tutorial.
