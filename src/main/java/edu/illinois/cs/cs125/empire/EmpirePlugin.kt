@@ -182,10 +182,10 @@ class EmpirePlugin : Plugin<Project> {
             }
             if (!studentConfig.useProvided) {
                 listOf()
-            } else if (studentConfig.segments != null) {
-                gradleConfig.segments.filter { studentConfig.segments[it.name] ?: false }
             } else if (studentConfig.checkpoint != null) {
                 checkpoint!!.segments.map { gradleConfig.segments.getByName(it) }
+            } else if (gradleConfig.allowArbitrarySegmentCombination && studentConfig.segments != null) {
+                gradleConfig.segments.filter { studentConfig.segments[it.name] ?: false }
             } else {
                 listOf()
             }

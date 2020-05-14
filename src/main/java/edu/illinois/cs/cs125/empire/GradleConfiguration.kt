@@ -9,12 +9,16 @@ import java.io.File
 
 open class EmpireExtension {
     var excludedSrcPath: String = "**"
+    var allowArbitrarySegmentCombination: Boolean = false
     lateinit var checkpoints: NamedDomainObjectContainer<EmpireCheckpoint>
     var opportunisticCompile: EmpireOpportunisticCompiler = EmpireOpportunisticCompiler()
     lateinit var segments: NamedDomainObjectContainer<EmpireSegment>
     var studentCompileTasks: MutableSet<String>? = null
     var studentConfig: File? = null
 
+    fun allowArbitrarySegmentCombination() {
+        allowArbitrarySegmentCombination = true
+    }
     fun checkpoints(action: Closure<NamedDomainObjectContainer<EmpireCheckpoint>>) {
         checkpoints.configure(action)
     }
